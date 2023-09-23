@@ -1,6 +1,14 @@
 import { sendMessageToParent } from '../internal/communication';
 import { registerHandler } from '../internal/handlers';
 import { ensureInitialized } from '../internal/internalAPIs';
+import { inServerSideRenderingEnvironment } from '../internal/utils';
+import { VideoPerformanceMonitor } from '../internal/videoPerformanceMonitor';
+import {
+  createEffectParameterChangeCallback,
+  DefaultVideoEffectCallBack as VideoEffectCallBack,
+  processMediaStream,
+  processMediaStreamWithMetadata,
+} from '../internal/videoUtils';
 import { errorNotSupportedOnPlatform, FrameContexts } from '../public/constants';
 import { runtime } from '../public/runtime';
 import { video } from '../public/video';
@@ -14,6 +22,9 @@ import { video } from '../public/video';
  * Limited to Microsoft-internal use
  */
 export namespace videoEx {
+  const videoPerformanceMonitor = inServerSideRenderingEnvironment()
+    ? undefined
+    : new VideoPerformanceMonitor(sendMessageToParent);
   /**
    * @hidden
    * Error level when notifying errors to the host, the host will decide what to do acording to the error level.
@@ -64,7 +75,7 @@ export namespace videoEx {
    * @internal
    * Limited to Microsoft-internal use
    */
-  export interface VideoFrame extends video.VideoFrameData {
+  export interface VideoBufferData extends video.VideoBufferData {
     /**
      * @hidden
      * The model output if you passed in an {@linkcode VideoFrameConfig.audioInferenceModel}
@@ -77,54 +88,175 @@ export namespace videoEx {
   }
 
   /**
+   * Old video frame data structure, almost identical to the {@link VideoBufferData} except `videoFrameBuffer` is named as `data`.
+   * Old host like the old Teams passes this data to the SDK. It will be deprecated in the future.
+   */
+  type LegacyVideoBufferData = Omit<VideoBufferData, 'videoFrameBuffer'> & {
+    /**
+     * Video frame buffer
+     */
+    data: Uint8ClampedArray;
+  };
+
+  /**
    * @hidden
-   * Video frame call back function
+   * The callback will be called on every frame when running on the supported host.
+   * We require the frame rate of the video to be at least 22fps for 720p, thus the callback should process a frame timely.
+   * The video app should call `notifyVideoFrameProcessed` to notify a successfully processed video frame.
+   * The video app should call `notifyError` to notify a failure. When the failures accumulate to a certain number(determined by the host), the host will see the app is "frozen" and give the user the option to close the app.
    * @beta
    *
    * @internal
    * Limited to Microsoft-internal use
    */
-  export type VideoFrameCallback = (
-    frame: VideoFrame,
+  export type VideoBufferHandler = (
+    videoBufferData: VideoBufferData,
     notifyVideoFrameProcessed: () => void,
     notifyError: (errorMessage: string) => void,
   ) => void;
 
   /**
    * @hidden
-   * Register to process video frames
+   * Video frame data extracted from the media stream. More properties may be added in the future.
    * @beta
-   *
-   * @param frameCallback - The callback to invoke when registerForVideoFrame has completed
-   * @param config - VideoFrameConfig to customize generated video frame parameters
    *
    * @internal
    * Limited to Microsoft-internal use
    */
-  export function registerForVideoFrame(frameCallback: VideoFrameCallback, config: VideoFrameConfig): void {
-    ensureInitialized(runtime, FrameContexts.sidePanel);
+  export type VideoFrameData = video.VideoFrameData & {
+    /**
+     * @hidden
+     * The model output if you passed in an {@linkcode VideoFrameConfig.audioInferenceModel}
+     * @beta
+     *
+     * @internal
+     * Limited to Microsoft-internal use
+     */
+    audioInferenceResult?: Uint8Array;
+  };
+
+  /**
+   * @hidden
+   * The callback will be called on every frame when running on the supported host.
+   * We require the frame rate of the video to be at least 22fps for 720p, thus the callback should process a frame timely.
+   * The video app should resolve the promise to notify a successfully processed video frame.
+   * The video app should reject the promise to notify a failure. When the failures accumulate to a certain number(determined by the host), the host will see the app is "frozen" and give the user the option to close the app.
+   * @beta
+   *
+   * @internal
+   * Limited to Microsoft-internal use
+   */
+  export type VideoFrameHandler = (receivedVideoFrame: VideoFrameData) => Promise<video.VideoFrame>;
+
+  /**
+   * @hidden
+   * @beta
+   * Callbacks and configuration supplied to the host to process the video frames.
+   * @internal
+   * Limited to Microsoft-internal use
+   */
+  export type RegisterForVideoFrameParameters = {
+    /**
+     * Callback function to process the video frames extracted from a media stream.
+     */
+    videoFrameHandler: VideoFrameHandler;
+    /**
+     * Callback function to process the video frames shared by the host.
+     */
+    videoBufferHandler: VideoBufferHandler;
+    /**
+     * Video frame configuration supplied to the host to customize the generated video frame parameters, like format
+     */
+    config: VideoFrameConfig;
+  };
+
+  /**
+   * @hidden
+   * Register to process video frames
+   * @beta
+   *
+   * @param parameters - Callbacks and configuration to process the video frames. A host may support either {@link VideoFrameHandler} or {@link VideoBufferHandler}, but not both.
+   * To ensure the video effect works on all supported hosts, the video app must provide both {@link VideoFrameHandler} and {@link VideoBufferHandler}.
+   * The host will choose the appropriate callback based on the host's capability.
+   *
+   * @internal
+   * Limited to Microsoft-internal use
+   */
+  export function registerForVideoFrame(parameters: RegisterForVideoFrameParameters): void {
     if (!isSupported()) {
       throw errorNotSupportedOnPlatform;
     }
+    if (!parameters.videoFrameHandler || !parameters.videoBufferHandler) {
+      throw new Error('Both videoFrameHandler and videoBufferHandler must be provided');
+    }
 
-    registerHandler(
-      'video.newVideoFrame',
-      (videoFrame: VideoFrame) => {
-        if (videoFrame) {
-          const timestamp = videoFrame.timestamp;
-          frameCallback(
-            videoFrame,
-            () => {
-              notifyVideoFrameProcessed(timestamp);
-            },
-            notifyError,
-          );
-        }
-      },
-      false,
-    );
+    if (ensureInitialized(runtime, FrameContexts.sidePanel)) {
+      registerHandler(
+        'video.setFrameProcessTimeLimit',
+        (timeLimit: number) => videoPerformanceMonitor?.setFrameProcessTimeLimit(timeLimit),
+        false,
+      );
+      if (runtime.supports.video?.mediaStream) {
+        registerHandler(
+          'video.startVideoExtensibilityVideoStream',
+          async (mediaStreamInfo: { streamId: string; metadataInTexture?: boolean }) => {
+            const { streamId, metadataInTexture } = mediaStreamInfo;
+            const handler = videoPerformanceMonitor
+              ? createMonitoredVideoFrameHandler(parameters.videoFrameHandler, videoPerformanceMonitor)
+              : parameters.videoFrameHandler;
+            metadataInTexture
+              ? await processMediaStreamWithMetadata(streamId, handler, notifyError, videoPerformanceMonitor)
+              : await processMediaStream(streamId, handler, notifyError, videoPerformanceMonitor);
+          },
+          false,
+        );
+        sendMessageToParent('video.mediaStream.registerForVideoFrame', [parameters.config]);
+      } else if (runtime.supports.video?.sharedFrame) {
+        registerHandler(
+          'video.newVideoFrame',
+          (videoBufferData: VideoBufferData | LegacyVideoBufferData) => {
+            if (videoBufferData) {
+              videoPerformanceMonitor?.reportStartFrameProcessing(videoBufferData.width, videoBufferData.height);
+              const timestamp = videoBufferData.timestamp;
+              parameters.videoBufferHandler(
+                normalizedVideoBufferData(videoBufferData),
+                () => {
+                  videoPerformanceMonitor?.reportFrameProcessed();
+                  notifyVideoFrameProcessed(timestamp);
+                },
+                notifyError,
+              );
+            }
+          },
+          false,
+        );
+        sendMessageToParent('video.registerForVideoFrame', [parameters.config]);
+      } else {
+        // should not happen if isSupported() is true
+        throw errorNotSupportedOnPlatform;
+      }
+      videoPerformanceMonitor?.startMonitorSlowFrameProcessing();
+    }
+  }
 
-    sendMessageToParent('video.registerForVideoFrame', [config]);
+  function createMonitoredVideoFrameHandler(
+    videoFrameHandler: VideoFrameHandler,
+    videoPerformanceMonitor: VideoPerformanceMonitor,
+  ): VideoFrameHandler {
+    return async (receivedVideoFrame: VideoFrameData): Promise<video.VideoFrame> => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const originalFrame = receivedVideoFrame.videoFrame as any;
+      videoPerformanceMonitor.reportStartFrameProcessing(originalFrame.codedWidth, originalFrame.codedHeight);
+      const processedFrame = await videoFrameHandler(receivedVideoFrame);
+      videoPerformanceMonitor.reportFrameProcessed();
+      return processedFrame;
+    };
+  }
+
+  function normalizedVideoBufferData(videoBufferData: VideoBufferData | LegacyVideoBufferData): VideoBufferData {
+    videoBufferData['videoFrameBuffer'] = videoBufferData['videoFrameBuffer'] || videoBufferData['data'];
+    delete videoBufferData['data'];
+    return videoBufferData as VideoBufferData;
   }
 
   /**
@@ -154,16 +286,6 @@ export namespace videoEx {
 
   /**
    * @hidden
-   * Video effect change call back function definition
-   * @beta
-   *
-   * @internal
-   * Limited to Microsoft-internal use
-   */
-  export type VideoEffectCallBack = (effectId: string | undefined, effectParam?: string) => void;
-
-  /**
-   * @hidden
    * Register the video effect callback, host uses this to notify the video extension the new video effect will by applied
    * @beta
    * @param callback - The VideoEffectCallback to invoke when registerForVideoEffect has completed
@@ -176,7 +298,12 @@ export namespace videoEx {
     if (!isSupported()) {
       throw errorNotSupportedOnPlatform;
     }
-    registerHandler('video.effectParameterChange', callback, false);
+
+    registerHandler(
+      'video.effectParameterChange',
+      createEffectParameterChangeCallback(callback, videoPerformanceMonitor),
+      false,
+    );
     sendMessageToParent('video.registerForVideoEffect');
   }
 

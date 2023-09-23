@@ -1,4 +1,4 @@
-import { sendAndHandleSdkError as sendAndHandleError } from '../internal/communication';
+import { sendAndHandleSdkError } from '../internal/communication';
 import { ensureInitialized } from '../internal/internalAPIs';
 import { validateShowProfileRequest } from '../internal/profileUtil';
 import { FrameContexts } from './constants';
@@ -40,7 +40,7 @@ export namespace profile {
         },
       };
 
-      resolve(sendAndHandleError('profile.showProfile', requestInternal));
+      resolve(sendAndHandleSdkError('profile.showProfile', requestInternal));
     });
   }
 
@@ -67,13 +67,13 @@ export namespace profile {
    * The set of identifiers that are supported for resolving the persona.
    *
    * At least one is required, and if multiple are provided then only the highest
-   * priority one will be used (AadObjectId > Upn > Smtp).
+   * priority one will be used (AadObjectId > Upn > Smtp). AAD is now known as "Microsoft Entra ID"
    *
    * @beta
    */
   export type PersonaIdentifiers = {
     /**
-     * The object id in Azure Active Directory.
+     * The object id in Microsoft Entra.
      *
      * This id is guaranteed to be unique for an object within a tenant,
      * and so if provided will lead to a more performant lookup. It can

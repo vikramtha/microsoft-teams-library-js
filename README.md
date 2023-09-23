@@ -7,14 +7,22 @@ Welcome to the Teams client library monorepo! For breaking changes, please refer
 
 ## Getting Started
 
-1. Fork the repo
+The following guide references steps to build the entire project including TeamsJS and all of the included apps. For guidelines on just building an individual app please look at the [Apps](#apps).
+
+### Building this Project
+
+1. Clone this repository `git clone https://github.com/OfficeDev/microsoft-teams-library-js.git`
 2. Run `pnpm install` from repo root
 3. Run `pnpm build` from repo root
 4. To run Unit tests, run `pnpm test`
 
-TIP: whenever building or testing the Teams client library, you can run `pnpm build` or `pnpm test` from the `packages/teams-js` directory.
+### Submitting a Pull Request
 
-See also: [Contributing](CONTRIBUTING.md)
+Please look through our [Contributing Guide](CONTRIBUTING.md) for important details on how to submit a pull request and contribute to this repository.
+
+NOTE: Make sure `pnpm@7.30.1` is installed as a global tool, by running `npm install -g pnpm@7.30.1`.
+
+TIP: whenever building or testing the Teams client library, you can run `pnpm build` or `pnpm test` from the `packages/teams-js` directory.
 
 This JavaScript library is part of the [Microsoft Teams developer platform](https://learn.microsoft.com/microsoftteams/platform/overview?view=msteams-client-js-latest). See full [library reference documentation](https://learn.microsoft.com/javascript/api/overview/msteams-client?view=msteams-client-js-latest).
 
@@ -39,6 +47,10 @@ React application used to locally test the loading times of the library.
 ### [Teams Test App](./apps/teams-test-app/README.md)
 
 Application used to test the functionality of the various library APIs.
+
+### [SSR Test App](./apps/ssr-test-app/README.md)
+
+Application used to ensure library changes do not break server-side rendering capabilities.
 
 ---
 

@@ -5,6 +5,7 @@ import { authentication, dialog, menus, pages } from '../../src/public';
 import { app } from '../../src/public/app';
 import {
   ChannelType,
+  errorNotSupportedOnPlatform,
   FrameContexts,
   HostClientType,
   HostName,
@@ -25,7 +26,6 @@ import {
   teamsRuntimeConfig,
 } from '../../src/public/runtime';
 import { version } from '../../src/public/version';
-import { FramelessPostMocks } from '../framelessPostMocks';
 import { Utils } from '../utils';
 
 /* eslint-disable */
@@ -837,27 +837,89 @@ describe('Testing app capability', () => {
         });
       }
     });
+    describe('Testing app.lifecycle subcapability', () => {
+      describe('Testing app.lifecycle.registerBeforeSuspendOrTerminateHandler function', () => {
+        it('should not allow calls before initialization', () => {
+          expect(() => app.lifecycle.registerBeforeSuspendOrTerminateHandler(() => {})).toThrowError(
+            new Error(errorLibraryNotInitialized),
+          );
+        });
+
+        Object.values(FrameContexts).forEach((context) => {
+          it(`app.lifecycle.registerBeforeSuspendOrTerminateHandler should throw error when app.lifecycle is not supported. context:${context}`, async () => {
+            await utils.initializeWithContext(context);
+            utils.setRuntimeConfig({ apiVersion: 1, supports: { app: {} } });
+            expect.assertions(1);
+            try {
+              app.lifecycle.registerBeforeSuspendOrTerminateHandler(() => {});
+            } catch (e) {
+              expect(e).toEqual(errorNotSupportedOnPlatform);
+            }
+          });
+
+          it(`app.lifecycle.registerBeforeSuspendOrTerminateHandler should successfully register a beforSuspendOrTerminate handler and readyToSuspendOrTerminate should be called. context: ${context}`, async () => {
+            await utils.initializeWithContext(context);
+
+            app.lifecycle.registerBeforeSuspendOrTerminateHandler(() => {});
+
+            utils.sendMessage('beforeSuspendOrTerminate');
+
+            let readyToSuspendOrTerminateMessage = utils.findMessageByFunc('readyToSuspendOrTerminate');
+            expect(readyToSuspendOrTerminateMessage).not.toBeNull();
+          });
+        });
+      });
+      describe('Testing app.lifecycle.registerOnResumeHandler function', () => {
+        it('should not allow calls before initialization', () => {
+          expect(() =>
+            app.lifecycle.registerOnResumeHandler(() => {
+              return false;
+            }),
+          ).toThrowError(new Error(errorLibraryNotInitialized));
+        });
+
+        Object.values(FrameContexts).forEach((context) => {
+          it(`app.lifecycle.registerOnResumeHandler should throw error when app.lifecycle is not supported. context: ${context}`, async () => {
+            await utils.initializeWithContext(context);
+            utils.setRuntimeConfig({ apiVersion: 1, supports: { app: {} } });
+            expect.assertions(1);
+            try {
+              app.lifecycle.registerOnResumeHandler(() => {
+                return false;
+              });
+            } catch (e) {
+              expect(e).toEqual(errorNotSupportedOnPlatform);
+            }
+          });
+
+          it(`app.lifecycle.registerOnResumeHandler should successfully register handler. context: ${context}`, async () => {
+            await utils.initializeWithContext(context);
+
+            let handlerInvoked = false;
+            app.lifecycle.registerOnResumeHandler(() => {
+              handlerInvoked = true;
+            });
+
+            utils.sendMessage('resume');
+            expect(handlerInvoked).toBe(true);
+          });
+        });
+      });
+    });
   });
 
   describe('Frameless - Testing app capbility', () => {
-    // Use to send a mock message from the app.
-    const framelessPostMock = new FramelessPostMocks();
-    const utils = new Utils();
-
-    // const mockErrorMessage = 'Something went wrong...';
-
+    let utils: Utils = new Utils();
     beforeEach(() => {
-      framelessPostMock.messages = [];
-      // Set a mock window for testing
-      app._initialize(framelessPostMock.mockWindow);
+      utils = new Utils();
+      utils.mockWindow.parent = undefined;
+      utils.messages = [];
+      app._initialize(utils.mockWindow);
+      GlobalVars.isFramelessWindow = false;
     });
-
     afterEach(() => {
-      // Reset the object since it's a singleton
-      if (app._uninitialize) {
-        utils.setRuntimeConfig(_minRuntimeConfigToUninitialize);
-        app._uninitialize();
-      }
+      app._uninitialize();
+      GlobalVars.isFramelessWindow = false;
     });
 
     describe('Testing app.isInitialized function', () => {
@@ -871,8 +933,8 @@ describe('Testing app capability', () => {
         const initPromise = app.initialize();
         expect(app.isInitialized()).toBe(false);
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -888,7 +950,7 @@ describe('Testing app capability', () => {
     describe('Testing app.getFrameContext function', () => {
       Object.values(FrameContexts).forEach((context) => {
         it(`app.getFrameContext should return ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
           expect(app.getFrameContext()).toBe(context);
         });
       });
@@ -898,9 +960,9 @@ describe('Testing app capability', () => {
       it('app.initialize should successfully initialize', () => {
         app.initialize();
 
-        expect(framelessPostMock.messages.length).toBe(1);
+        expect(utils.messages.length).toBe(1);
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
+        const initMessage = utils.findMessageByFunc('initialize');
         expect(initMessage).not.toBeNull();
         expect(initMessage.id).toBe(0);
         expect(initMessage.func).toBe('initialize');
@@ -916,7 +978,7 @@ describe('Testing app capability', () => {
         }
 
         // Still only one message actually sent, the extra calls just no-op'ed
-        expect(framelessPostMock.messages.length).toBe(1);
+        expect(utils.messages.length).toBe(1);
       });
 
       it('app.initialize should invoke all callbacks once initialization completes', async () => {
@@ -930,13 +992,13 @@ describe('Testing app capability', () => {
           secondCallbackInvoked = true;
         });
 
-        expect(framelessPostMock.messages.length).toBe(1);
+        expect(utils.messages.length).toBe(1);
 
         expect(firstCallbackInvoked).toBe(false);
         expect(secondCallbackInvoked).toBe(false);
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -951,10 +1013,10 @@ describe('Testing app capability', () => {
       it('app.initialize should invoke callback immediately if initialization has already completed', async () => {
         const initPromise = app.initialize();
 
-        expect(framelessPostMock.messages.length).toBe(1);
+        expect(utils.messages.length).toBe(1);
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -972,9 +1034,9 @@ describe('Testing app capability', () => {
 
       it('app.initialize should use teams runtime config if no runtime config is given', async () => {
         const initPromise = app.initialize();
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
+        const initMessage = utils.findMessageByFunc('initialize');
 
-        framelessPostMock.respondToMessage({
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '1.6.0'],
@@ -988,8 +1050,8 @@ describe('Testing app capability', () => {
       it('app.initialize should use teams runtime config if an empty runtime config is given', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '', '1.6.0'],
@@ -1003,8 +1065,8 @@ describe('Testing app capability', () => {
       it('app.initialize should use teams runtime config if a JSON parsing error is thrown by a given runtime config', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, 'nonJSONStr', '1.6.0'],
@@ -1018,8 +1080,8 @@ describe('Testing app capability', () => {
       it('app.initialize should throw an error if the given runtime config causes a non parsing related error', async () => {
         const promise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, null],
@@ -1031,8 +1093,8 @@ describe('Testing app capability', () => {
       it('app.initialize should not use the teams config as a default if another proper config is given', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '{"apiVersion":1, "supports":{"mail":{}}}'],
@@ -1047,8 +1109,8 @@ describe('Testing app capability', () => {
       it('app.initialize should assign clientSupportedSDKVersion correctly when a proper runtime config is given', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '{"apiVersion":1, "supports":{"mail":{}}}', '1.0.0'],
@@ -1063,8 +1125,8 @@ describe('Testing app capability', () => {
       it('app.initialize should initialize with clientSupportedSDKVersion and runtimeConfig arguments flipped', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '1.0.0', '{"apiVersion":1, "supports":{"mail":{}}}'],
@@ -1079,8 +1141,8 @@ describe('Testing app capability', () => {
       it('app.initialize should initialize with teams config when an invalid runtimeConfig is given, with arguments flipped', async () => {
         const initPromise = app.initialize();
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [FrameContexts.content, HostClientType.web, '1.6.0', 'nonJSONStr'],
@@ -1095,8 +1157,8 @@ describe('Testing app capability', () => {
         it(`app.initialize should assign hostClientType correctly when ${hostClientType} is given`, async () => {
           const initPromise = app.initialize();
 
-          const initMessage = framelessPostMock.findMessageByFunc('initialize');
-          framelessPostMock.respondToMessage({
+          const initMessage = utils.findMessageByFunc('initialize');
+          utils.respondToFramelessMessage({
             data: {
               id: initMessage.id,
               args: [FrameContexts.content, hostClientType, '', '1.6.0'],
@@ -1112,8 +1174,8 @@ describe('Testing app capability', () => {
         const spy = jest.spyOn(authentication, 'initialize');
 
         const initPromise = app.initialize();
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -1128,8 +1190,8 @@ describe('Testing app capability', () => {
         const spy = jest.spyOn(menus, 'initialize');
 
         const initPromise = app.initialize();
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -1144,8 +1206,8 @@ describe('Testing app capability', () => {
         const spy = jest.spyOn(pages.config, 'initialize');
 
         const initPromise = app.initialize();
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -1160,8 +1222,8 @@ describe('Testing app capability', () => {
         const spy = jest.spyOn(dialog, 'initialize');
 
         const initPromise = app.initialize();
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -1176,8 +1238,8 @@ describe('Testing app capability', () => {
         const validOrigin = 'https://www.mydomain.com';
         const initPromise = app.initialize([validOrigin]);
 
-        const initMessage = framelessPostMock.findMessageByFunc('initialize');
-        framelessPostMock.respondToMessage({
+        const initMessage = utils.findMessageByFunc('initialize');
+        utils.respondToFramelessMessage({
           data: {
             id: initMessage.id,
             args: [],
@@ -1197,14 +1259,14 @@ describe('Testing app capability', () => {
 
       Object.values(FrameContexts).forEach((context) => {
         it(`app.getContext should successfully get frame context in ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           const contextPromise = app.getContext();
 
-          const getContextMessage = framelessPostMock.findMessageByFunc('getContext');
+          const getContextMessage = utils.findMessageByFunc('getContext');
           expect(getContextMessage).not.toBeNull();
 
-          framelessPostMock.respondToMessage({
+          utils.respondToFramelessMessage({
             data: {
               id: getContextMessage.id,
               args: [{}],
@@ -1216,13 +1278,13 @@ describe('Testing app capability', () => {
         });
 
         it(`app.getContext should successfully get frame context when returned from client from ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           const contextPromise = app.getContext();
 
-          const getContextMessage = framelessPostMock.findMessageByFunc('getContext');
+          const getContextMessage = utils.findMessageByFunc('getContext');
           expect(getContextMessage).not.toBeNull();
-          framelessPostMock.respondToMessage({
+          utils.respondToFramelessMessage({
             data: {
               id: getContextMessage.id,
               args: [{ frameContext: context }],
@@ -1234,14 +1296,14 @@ describe('Testing app capability', () => {
         });
 
         it(`app.getContext should successfully get frame context in ${context} with fallback logic if not returned from client`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           const contextPromise = app.getContext();
 
-          const getContextMessage = framelessPostMock.findMessageByFunc('getContext');
+          const getContextMessage = utils.findMessageByFunc('getContext');
           expect(getContextMessage).not.toBeNull();
 
-          framelessPostMock.respondToMessage({
+          utils.respondToFramelessMessage({
             data: {
               id: getContextMessage.id,
               args: [{}],
@@ -1253,11 +1315,11 @@ describe('Testing app capability', () => {
         });
 
         it(`app.getContext should successfully get context with ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           const contextPromise = app.getContext();
 
-          const getContextMessage = framelessPostMock.findMessageByFunc('getContext');
+          const getContextMessage = utils.findMessageByFunc('getContext');
           expect(getContextMessage).not.toBeNull();
 
           const contextBridge: Context = {
@@ -1379,7 +1441,7 @@ describe('Testing app capability', () => {
             },
           };
 
-          framelessPostMock.respondToMessage({
+          utils.respondToFramelessMessage({
             data: {
               id: getContextMessage.id,
               args: [contextBridge],
@@ -1401,9 +1463,9 @@ describe('Testing app capability', () => {
 
       Object.values(FrameContexts).forEach((context) => {
         it(`app.notifyAppLoaded should successfully notify app is loaded with no error from ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
           app.notifyAppLoaded();
-          const message = framelessPostMock.findMessageByFunc(app.Messages.AppLoaded);
+          const message = utils.findMessageByFunc(app.Messages.AppLoaded);
           expect(message).not.toBeNull();
           expect(message.args.length).toBe(1);
           expect(message.args[0]).toEqual(version);
@@ -1418,9 +1480,9 @@ describe('Testing app capability', () => {
 
       Object.values(FrameContexts).forEach((context) => {
         it(`app.notifySuccess should successfully notify success with no error from ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
           app.notifySuccess();
-          const message = framelessPostMock.findMessageByFunc(app.Messages.Success);
+          const message = utils.findMessageByFunc(app.Messages.Success);
           expect(message).not.toBeNull();
           expect(message.args.length).toBe(1);
           expect(message.args[0]).toEqual(version);
@@ -1440,13 +1502,13 @@ describe('Testing app capability', () => {
 
       Object.values(FrameContexts).forEach((context) => {
         it(`app.notifyFailure should call notify failure correctly with ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           app.notifyFailure({
             reason: app.FailedReason.AuthFailed,
             message: 'Failed message',
           });
-          const message = framelessPostMock.findMessageByFunc(app.Messages.Failure);
+          const message = utils.findMessageByFunc(app.Messages.Failure);
           expect(message).not.toBeNull();
           expect(message.args.length).toBe(2);
           expect(message.args[0]).toEqual(app.FailedReason.AuthFailed);
@@ -1454,13 +1516,13 @@ describe('Testing app capability', () => {
         });
 
         it(`app.notifyFailure should call notify expected failure correctly with ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
 
           app.notifyExpectedFailure({
             reason: app.ExpectedFailureReason.PermissionError,
             message: 'Failed message',
           });
-          const message = framelessPostMock.findMessageByFunc(app.Messages.ExpectedFailure);
+          const message = utils.findMessageByFunc(app.Messages.ExpectedFailure);
           expect(message).not.toBeNull();
           expect(message.args.length).toBe(2);
           expect(message.args[0]).toEqual(app.ExpectedFailureReason.PermissionError);
@@ -1477,12 +1539,12 @@ describe('Testing app capability', () => {
 
       Object.values(FrameContexts).forEach((context) => {
         it(`app.registerOnThemeChangeHandler should successfully register a theme change handler from ${context} context`, async () => {
-          await framelessPostMock.initializeWithContext(context);
+          await utils.initializeWithContext(context);
           let newTheme: string;
           app.registerOnThemeChangeHandler((theme) => {
             newTheme = theme;
           });
-          framelessPostMock.respondToMessage({
+          utils.respondToFramelessMessage({
             data: {
               func: 'themeChange',
               args: ['someTheme'],
@@ -1494,16 +1556,16 @@ describe('Testing app capability', () => {
     });
 
     it('should call navigateBack automatically when no back button handler is registered', async () => {
-      await framelessPostMock.initializeWithContext('content');
+      await utils.initializeWithContext('content');
 
-      framelessPostMock.respondToMessage({
+      utils.respondToFramelessMessage({
         data: {
           func: 'backButtonPress',
           args: ['navigateBack'],
         },
       } as DOMMessageEvent);
 
-      const navigateBackMessage = framelessPostMock.findMessageByFunc('navigateBack');
+      const navigateBackMessage = utils.findMessageByFunc('navigateBack');
       expect(navigateBackMessage).not.toBeNull();
     });
 
@@ -1515,14 +1577,14 @@ describe('Testing app capability', () => {
       for (const context in contexts) {
         describe(`app.openLink in ${contexts[context]} context `, () => {
           it(`app.openLink should successfully send a request from ${context[context]}`, async () => {
-            await framelessPostMock.initializeWithContext(contexts[context]);
+            await utils.initializeWithContext(contexts[context]);
             const request = 'dummyDeepLink';
 
             // send message request
             const promise = app.openLink(request);
 
             // find message request in jest
-            const message = framelessPostMock.findMessageByFunc('executeDeepLink');
+            const message = utils.findMessageByFunc('executeDeepLink');
 
             // check message is sending correct data
             expect(message).not.toBeUndefined();
@@ -1533,7 +1595,7 @@ describe('Testing app capability', () => {
               success: true,
             };
 
-            framelessPostMock.respondToMessage({
+            utils.respondToFramelessMessage({
               data: {
                 id: message.id,
                 args: [data.success],
@@ -1543,14 +1605,14 @@ describe('Testing app capability', () => {
           });
 
           it(`app.openLink should invoke error callback from ${context[context]}`, async () => {
-            await framelessPostMock.initializeWithContext(contexts[context]);
+            await utils.initializeWithContext(contexts[context]);
             const request = 'dummyDeepLink';
 
             // send message request
             const promise = app.openLink(request);
 
             // find message request in jest
-            const message = framelessPostMock.findMessageByFunc('executeDeepLink');
+            const message = utils.findMessageByFunc('executeDeepLink');
 
             // check message is sending correct data
             expect(message).not.toBeUndefined();
@@ -1561,7 +1623,7 @@ describe('Testing app capability', () => {
               success: false,
               error: mockErrorMessage,
             };
-            framelessPostMock.respondToMessage({
+            utils.respondToFramelessMessage({
               data: {
                 id: message.id,
                 args: [data.success, data.error],

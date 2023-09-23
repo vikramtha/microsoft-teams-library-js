@@ -1,15 +1,22 @@
 import { sendMessageToParent } from '../internal/communication';
-import { sendAndHandleStatusAndReason as sendAndHandleError } from '../internal/communication';
+import { sendAndHandleStatusAndReason } from '../internal/communication';
 import { createTeamsDeepLinkForAppInstallDialog } from '../internal/deepLinkUtilities';
 import { ensureInitialized } from '../internal/internalAPIs';
 import { FrameContexts } from './constants';
 import { runtime } from './runtime';
 
 export namespace appInstallDialog {
+  /** Represents set of parameters needed to open the appInstallDialog. */
   export interface OpenAppInstallDialogParams {
+    /** A unique identifier for the app being installed. */
     appId: string;
   }
 
+  /**
+   * Displays a dialog box that allows users to install a specific app within the host environment.
+   *
+   * @param openAPPInstallDialogParams - See {@link OpenAppInstallDialogParams | OpenAppInstallDialogParams} for more information.
+   */
   export function openAppInstallDialog(openAPPInstallDialogParams: OpenAppInstallDialogParams): Promise<void> {
     return new Promise((resolve) => {
       ensureInitialized(
@@ -26,7 +33,7 @@ export namespace appInstallDialog {
       }
       if (runtime.isLegacyTeams) {
         resolve(
-          sendAndHandleError(
+          sendAndHandleStatusAndReason(
             'executeDeepLink',
             createTeamsDeepLinkForAppInstallDialog(openAPPInstallDialogParams.appId),
           ),

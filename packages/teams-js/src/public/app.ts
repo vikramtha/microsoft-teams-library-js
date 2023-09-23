@@ -5,7 +5,7 @@
 import {
   Communication,
   initializeCommunication,
-  sendAndHandleStatusAndReason as send,
+  sendAndHandleStatusAndReason,
   sendAndUnwrap,
   sendMessageToParent,
   uninitializeCommunication,
@@ -15,16 +15,22 @@ import { GlobalVars } from '../internal/globalVars';
 import * as Handlers from '../internal/handlers'; // Conflict with some names
 import { ensureInitializeCalled, ensureInitialized, processAdditionalValidOrigins } from '../internal/internalAPIs';
 import { getLogger } from '../internal/telemetry';
-import { compareSDKVersions, runWithTimeout } from '../internal/utils';
-import { logs } from '../private/logs';
+import { compareSDKVersions, inServerSideRenderingEnvironment, runWithTimeout } from '../internal/utils';
 import { authentication } from './authentication';
-import { ChannelType, FrameContexts, HostClientType, HostName, TeamType, UserTeamRole } from './constants';
+import {
+  ChannelType,
+  errorNotSupportedOnPlatform,
+  FrameContexts,
+  HostClientType,
+  HostName,
+  TeamType,
+  UserTeamRole,
+} from './constants';
 import { dialog } from './dialog';
-import { ActionInfo, Context as LegacyContext, FileOpenPreference, LocaleInfo } from './interfaces';
+import { ActionInfo, Context as LegacyContext, FileOpenPreference, LocaleInfo, ResumeContext } from './interfaces';
 import { menus } from './menus';
 import { pages } from './pages';
 import { applyRuntimeConfig, generateBackCompatRuntimeConfig, IBaseRuntime, runtime } from './runtime';
-import { teamsCore } from './teamsAPIs';
 import { version } from './version';
 
 /**
@@ -35,10 +41,15 @@ export namespace app {
 
   // ::::::::::::::::::::::: MicrosoftTeams client SDK public API ::::::::::::::::::::
 
+  /** App Initialization Messages */
   export const Messages = {
+    /** App loaded. */
     AppLoaded: 'appInitialization.appLoaded',
+    /** App initialized successfully. */
     Success: 'appInitialization.success',
+    /** App initialization failed. */
     Failure: 'appInitialization.failure',
+    /** App initialization expected failure. */
     ExpectedFailure: 'appInitialization.expectedFailure',
   };
 
@@ -178,12 +189,12 @@ export namespace app {
    */
   export interface AppHostInfo {
     /**
-     * The name of the host client. Possible values are: Office, Orange, Outlook, Teams
+     * Identifies which host is running your app
      */
     name: HostName;
 
     /**
-     * The type of the host client. Possible values are : android, ios, web, desktop, rigel
+     * The client type on which the host is running
      */
     clientType: HostClientType;
 
@@ -233,7 +244,7 @@ export namespace app {
     ownerTenantId?: string;
 
     /**
-     * The AAD group ID of the team which owns the channel.
+     * The Microsoft Entra group ID of the team which owns the channel.
      */
     ownerGroupId?: string;
   }
@@ -333,6 +344,7 @@ export namespace app {
 
     /**
      * The user's role in the team.
+
      * Because a malicious party can run your content in a browser, this value should
      * be used only as a hint as to the user's role, and never as proof of her role.
      */
@@ -344,9 +356,14 @@ export namespace app {
    */
   export interface UserInfo {
     /**
-     * The Azure AD object id of the current user.
-     * Because a malicious party run your content in a browser, this value should
-     * be used only as a hint as to who the user is and never as proof of identity.
+     * The Microsoft Entra object id of the current user.
+     *
+     * Because a malicious party can run your content in a browser, this value should
+     * be used only as a optimization hint as to who the user is and never as proof of identity.
+     * Specifically, this value should never be used to determine if a user is authorized to access
+     * a resource; access tokens should be used for that.
+     * See {@link authentication.getAuthToken} and {@link authentication.authenticate} for more information on access tokens.
+     *
      * This field is available only when the identity permission is requested in the manifest.
      */
     id: string;
@@ -368,23 +385,31 @@ export namespace app {
 
     /**
      * The license type for the current user. Possible values are:
-     * "Unknown", "Teacher", "Student", "Free", "SmbBusinessVoice", "SmbNonVoice", "FrontlineWorker"
+     * "Unknown", "Teacher", "Student", "Free", "SmbBusinessVoice", "SmbNonVoice", "FrontlineWorker", "Anonymous"
      */
     licenseType?: string;
 
     /**
-     * A value suitable for use as a login_hint when authenticating with Azure AD.
+     * A value suitable for use when providing a login_hint to Microsoft Entra ID for authentication purposes.
+     * See [Provide optional claims to your app](https://learn.microsoft.com/azure/active-directory/develop/active-directory-optional-claims#v10-and-v20-optional-claims-set)
+     * for more information about the use of login_hint
+     *
      * Because a malicious party can run your content in a browser, this value should
-     * be used only as a hint as to who the user is and never as proof of identity.
-     * This field is available only when the identity permission is requested in the manifest.
+     * be used only as a optimization hint as to who the user is and never as proof of identity.
+     * Specifically, this value should never be used to determine if a user is authorized to access
+     * a resource; access tokens should be used for that.
+     * See {@link authentication.getAuthToken} and {@link authentication.authenticate} for more information on access tokens.
      */
     loginHint?: string;
 
     /**
      * The UPN of the current user. This may be an externally-authenticated UPN (e.g., guest users).
-     * Because a malicious party run your content in a browser, this value should
-     * be used only as a hint as to who the user is and never as proof of identity.
-     * This field is available only when the identity permission is requested in the manifest.
+
+     * Because a malicious party can run your content in a browser, this value should
+     * be used only as a optimization hint as to who the user is and never as proof of identity.
+     * Specifically, this value should never be used to determine if a user is authorized to access
+     * a resource; access tokens should be used for that.
+     * See {@link authentication.getAuthToken} and {@link authentication.authenticate} for more information on access tokens.
      */
     userPrincipalName?: string;
 
@@ -399,10 +424,13 @@ export namespace app {
    */
   export interface TenantInfo {
     /**
-     * The Azure AD tenant ID of the current user.
+     * The Microsoft Entra tenant ID of the current user.
+
      * Because a malicious party can run your content in a browser, this value should
-     * be used only as a hint as to who the user is and never as proof of identity.
-     * This field is available only when the identity permission is requested in the manifest.
+     * be used only as a optimization hint as to who the user is and never as proof of identity.
+     * Specifically, this value should never be used to determine if a user is authorized to access
+     * a resource; access tokens should be used for that.
+     * See {@link authentication.getAuthToken} and {@link authentication.authenticate} for more information on access tokens.
      */
     id: string;
 
@@ -412,6 +440,7 @@ export namespace app {
     teamsSku?: string;
   }
 
+  /** Represents information about a SharePoint site */
   export interface SharePointSiteInfo {
     /**
      * The root SharePoint site associated with the team.
@@ -502,6 +531,11 @@ export namespace app {
      */
     team?: TeamInfo;
   }
+
+  /**
+   * This function is passed to registerOnThemeHandler. It is called every time the user changes their theme.
+   */
+  type themeHandler = (theme: string) => void;
 
   /**
    * Checks whether the Teams client SDK has been initialized.
@@ -659,26 +693,7 @@ export namespace app {
       return;
     }
 
-    if (GlobalVars.frameContext) {
-      /* eslint-disable strict-null-checks/all */ /* Fix tracked by 5730662 */
-      registerOnThemeChangeHandler(null);
-      pages.backStack.registerBackButtonHandler(null);
-      pages.registerFullScreenHandler(null);
-      teamsCore.registerBeforeUnloadHandler(null);
-      teamsCore.registerOnLoadHandler(null);
-      logs.registerGetLogHandler(null); /* Fix tracked by 5730662 */
-      /* eslint-enable strict-null-checks/all */
-    }
-
-    if (GlobalVars.frameContext === FrameContexts.settings) {
-      /* eslint-disable-next-line strict-null-checks/all */ /* Fix tracked by 5730662 */
-      pages.config.registerOnSaveHandler(null);
-    }
-
-    if (GlobalVars.frameContext === FrameContexts.remove) {
-      /* eslint-disable-next-line strict-null-checks/all */ /* Fix tracked by 5730662 */
-      pages.config.registerOnRemoveHandler(null);
-    }
+    Handlers.uninitializeHandlers();
 
     GlobalVars.initializeCalled = false;
     GlobalVars.initializeCompleted = false;
@@ -751,7 +766,7 @@ export namespace app {
    *
    * @param handler - The handler to invoke when the user changes their theme.
    */
-  export function registerOnThemeChangeHandler(handler: (theme: string) => void): void {
+  export function registerOnThemeChangeHandler(handler: themeHandler): void {
     // allow for registration cleanup even when not called initialize
     handler && ensureInitializeCalled();
     Handlers.registerOnThemeChangeHandler(handler);
@@ -774,8 +789,82 @@ export namespace app {
         FrameContexts.stage,
         FrameContexts.meetingStage,
       );
-      resolve(send('executeDeepLink', deepLink));
+      resolve(sendAndHandleStatusAndReason('executeDeepLink', deepLink));
     });
+  }
+
+  /**
+   * A namespace for enabling the suspension or delayed termination of an app when the user navigates away.
+   * When an app registers for the registerBeforeSuspendOrTerminateHandler, it chooses to delay termination.
+   * When an app registers for both registerBeforeSuspendOrTerminateHandler and registerOnResumeHandler, it chooses the suspension of the app .
+   * Please note that selecting suspension doesn't guarantee prevention of background termination.
+   * The outcome is influenced by factors such as available memory and the number of suspended apps.
+   *
+   * @beta
+   */
+  export namespace lifecycle {
+    /**
+     * Register on resume handler function type
+     *
+     * @param context - Data structure to be used to pass the context to the app.
+     */
+    type registerOnResumeHandlerFunctionType = (context: ResumeContext) => void;
+
+    /**
+     * Register before suspendOrTerminate handler function type
+     *
+     * @returns void
+     */
+    type registerBeforeSuspendOrTerminateHandlerFunctionType = () => void;
+
+    /**
+     * Registers a handler to be called before the page is suspended or terminated. Once a user navigates away from an app,
+     * the handler will be invoked. App developers can use this handler to save unsaved data, pause sync calls etc.
+     *
+     * @param handler - The handler to invoke before the page is suspended or terminated. When invoked, app can perform tasks like cleanups, logging etc.
+     * Upon returning, the app will be suspended or terminated.
+     *
+     */
+    export function registerBeforeSuspendOrTerminateHandler(
+      handler: registerBeforeSuspendOrTerminateHandlerFunctionType,
+    ): void {
+      if (!handler) {
+        throw new Error('[app.lifecycle.registerBeforeSuspendOrTerminateHandler] Handler cannot be null');
+      }
+      if (!isSupported()) {
+        throw errorNotSupportedOnPlatform;
+      }
+      Handlers.registerBeforeSuspendOrTerminateHandler(handler);
+    }
+
+    /**
+     * Registers a handler to be called when the page has been requested to resume from being suspended.
+     *
+     * @param handler - The handler to invoke when the page is requested to be resumed. The app is supposed to navigate to
+     * the appropriate page using the ResumeContext. Once done, the app should then call {@link notifySuccess}.
+     *
+     * @beta
+     */
+    export function registerOnResumeHandler(handler: registerOnResumeHandlerFunctionType): void {
+      if (!handler) {
+        throw new Error('[app.lifecycle.registerOnResumeHandler] Handler cannot be null');
+      }
+      if (!isSupported()) {
+        throw errorNotSupportedOnPlatform;
+      }
+      Handlers.registerOnResumeHandler(handler);
+    }
+
+    /**
+     * Checks if app.lifecycle is supported by the host.
+     * @returns boolean to represent whether the lifecycle capability is supported
+     * @throws Error if {@linkcode app.initialize} has not successfully completed
+     *
+     * @beta
+     */
+    export function isSupported(): boolean {
+      return ensureInitialized(runtime) && !!runtime.supports.app?.lifecycle;
+    }
   }
 }
 
@@ -880,8 +969,4 @@ function transformLegacyContextToAppContext(legacyContext: LegacyContext): app.C
   };
 
   return context;
-}
-
-function inServerSideRenderingEnvironment(): boolean {
-  return typeof window === 'undefined';
 }

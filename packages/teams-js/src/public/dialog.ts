@@ -249,7 +249,7 @@ export namespace dialog {
      */
     export namespace bot {
       /**
-       * Allows an app to open the dialog module using bot.
+       * Allows an app to open a dialog that sends submitted data to a bot.
        *
        * @param botUrlDialogInfo - An object containing the parameters of the dialog module including completionBotId.
        * @param submitHandler - Handler that triggers when the dialog has been submitted or closed.
@@ -494,9 +494,7 @@ export namespace dialog {
      *
      * @internal
      */
-    export function getDialogInfoFromAdaptiveCardDialogInfo(
-      adaptiveCardDialogInfo: AdaptiveCardDialogInfo,
-    ): DialogInfo {
+    function getDialogInfoFromAdaptiveCardDialogInfo(adaptiveCardDialogInfo: AdaptiveCardDialogInfo): DialogInfo {
       const dialogInfo: DialogInfo = {
         card: adaptiveCardDialogInfo.card,
         height: adaptiveCardDialogInfo.size ? adaptiveCardDialogInfo.size.height : DialogDimension.Small,
@@ -514,53 +512,12 @@ export namespace dialog {
      *
      * @internal
      */
-    export function getDialogInfoFromBotAdaptiveCardDialogInfo(
+    function getDialogInfoFromBotAdaptiveCardDialogInfo(
       botAdaptiveCardDialogInfo: BotAdaptiveCardDialogInfo,
     ): DialogInfo {
       const dialogInfo: DialogInfo = getDialogInfoFromAdaptiveCardDialogInfo(botAdaptiveCardDialogInfo);
       dialogInfo.completionBotId = botAdaptiveCardDialogInfo.completionBotId;
       return dialogInfo;
-    }
-
-    /**
-     * @hidden
-     * Converts {@link TaskInfo} to {@link AdaptiveCardDialogInfo}
-     * @param taskInfo - TaskInfo object to convert
-     * @returns - converted AdaptiveCardDialogInfo
-     */
-    export function getAdaptiveCardDialogInfoFromTaskInfo(taskInfo: TaskInfo): AdaptiveCardDialogInfo {
-      // eslint-disable-next-line strict-null-checks/all
-      const adaptiveCardDialogInfo: AdaptiveCardDialogInfo = {
-        card: taskInfo.card,
-        size: {
-          height: taskInfo.height ? taskInfo.height : DialogDimension.Small,
-          width: taskInfo.width ? taskInfo.width : DialogDimension.Small,
-        },
-        title: taskInfo.title,
-      };
-
-      return adaptiveCardDialogInfo;
-    }
-
-    /**
-     * @hidden
-     * Converts {@link TaskInfo} to {@link BotAdaptiveCardDialogInfo}
-     * @param taskInfo - TaskInfo object to convert
-     * @returns - converted BotAdaptiveCardDialogInfo
-     */
-    export function getBotAdaptiveCardDialogInfoFromTaskInfo(taskInfo: TaskInfo): BotAdaptiveCardDialogInfo {
-      /* eslint-disable-next-line strict-null-checks/all */ /* Fix tracked by 5730662 */
-      const botAdaptiveCardDialogInfo: BotAdaptiveCardDialogInfo = {
-        card: taskInfo.card,
-        size: {
-          height: taskInfo.height ? taskInfo.height : DialogDimension.Small,
-          width: taskInfo.width ? taskInfo.width : DialogDimension.Small,
-        },
-        title: taskInfo.title,
-        completionBotId: taskInfo.completionBotId,
-      };
-
-      return botAdaptiveCardDialogInfo;
     }
   }
 }

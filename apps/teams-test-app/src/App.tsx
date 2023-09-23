@@ -11,15 +11,19 @@ import AuthenticationAPIs from './components/AuthenticationAPIs';
 import BarCodeAPIs from './components/BarCodeAPIs';
 import CalendarAPIs from './components/CalendarAPIs';
 import CallAPIs from './components/CallAPIs';
+import ClipboardAPIs from './components/Clipboard';
 import DialogAPIs from './components/DialogAPIs';
 import DialogCardAPIs from './components/DialogCardAPIs';
+import DialogCardBotAPIs from './components/DialogCardBotAPIs';
 import DialogUpdateAPIs from './components/DialogUpdateAPIs';
 import DialogUrlAPIs from './components/DialogUrlAPIs';
+import DialogUrlBotAPIs from './components/DialogUrlBotAPIs';
 import GeoLocationAPIs from './components/GeoLocationAPIs';
 import Links from './components/Links';
 import LocationAPIs from './components/LocationAPIs';
 import LogAPIs from './components/LogsAPIs';
 import MailAPIs from './components/MailAPIs';
+import MarketplaceAPIs from './components/MarketplaceAPIs';
 import MediaAPIs from './components/MediaAPIs';
 import MeetingAPIs from './components/MeetingAPIs';
 import MenusAPIs from './components/MenusAPIs';
@@ -38,14 +42,17 @@ import MonetizationAPIs from './components/privateApis/MonetizationAPIs';
 import NotificationAPIs from './components/privateApis/NotificationAPIs';
 import PrivateAPIs from './components/privateApis/PrivateAPIs';
 import TeamsAPIs from './components/privateApis/TeamsAPIs';
+import VideoExAPIs from './components/privateApis/VideoExAPIs';
 import ProfileAPIs from './components/ProfileAPIs';
 import RemoteCameraAPIs from './components/RemoteCameraAPIs';
 import SearchAPIs from './components/SearchAPIs';
+import SecondaryBrowserAPIs from './components/SecondaryBrowserAPIs';
 import SharingAPIs from './components/SharingAPIs';
 import StageViewAPIs from './components/StageViewAPIs';
 import TeamsCoreAPIs from './components/TeamsCoreAPIs';
 import { isTestBackCompat } from './components/utils/isTestBackCompat';
 import Version from './components/Version';
+import VideoAPIs from './components/VideoApis';
 import WebStorageAPIs from './components/WebStorageAPIs';
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -123,10 +130,13 @@ const App = (): ReactElement => {
         <CalendarAPIs />
         <CallAPIs />
         <ChatAPIs />
+        <ClipboardAPIs />
         <DialogAPIs />
         <DialogCardAPIs />
+        <DialogCardBotAPIs />
         <DialogUpdateAPIs />
         <DialogUrlAPIs />
+        <DialogUrlBotAPIs />
         <FilesAPIs />
         <FullTrustAPIs />
         <GeoLocationAPIs />
@@ -134,6 +144,7 @@ const App = (): ReactElement => {
         <LocationAPIs />
         <LogAPIs />
         <MailAPIs />
+        <MarketplaceAPIs />
         <MediaAPIs />
         <MeetingAPIs />
         <MeetingRoomAPIs />
@@ -151,11 +162,14 @@ const App = (): ReactElement => {
         <ProfileAPIs />
         <RemoteCameraAPIs />
         <SearchAPIs />
+        <SecondaryBrowserAPIs />
         <SharingAPIs />
         <WebStorageAPIs />
         <StageViewAPIs />
         <TeamsCoreAPIs />
         <TeamsAPIs />
+        <VideoAPIs />
+        <VideoExAPIs />
       </div>
       <Version />
     </div>

@@ -16,7 +16,7 @@ import { BundleFileData, getBundleFilePathsFromFolder } from './getBundleFilePat
  */
 export function getBundlePathsFromZipObject(jsZip: JSZip): BundleFileData[] {
   const relativePaths: string[] = [];
-  jsZip.forEach(path => {
+  jsZip.forEach((path) => {
     relativePaths.push(path);
   });
 
@@ -24,7 +24,7 @@ export function getBundlePathsFromZipObject(jsZip: JSZip): BundleFileData[] {
 }
 
 /**
- * Downloads an Azure Devops artifacts and parses it with the jszip library.
+ * Downloads an Azure Devops Artifacts package and parses it with the JSZip library
  * @param adoConnection - A connection to the ADO api.
  * @param buildNumber - The ADO build number that contains the artifact we wish to fetch
  */

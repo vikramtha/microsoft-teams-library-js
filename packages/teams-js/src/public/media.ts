@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 
-import { sendMessageToParent } from '../internal/communication';
+import { sendAndHandleSdkError, sendMessageToParent } from '../internal/communication';
 import {
   captureImageMobileSupportVersion,
   getMediaCallbackSupportVersion,
@@ -26,16 +26,32 @@ import {
   validateViewImagesInput,
 } from '../internal/mediaUtil';
 import { generateGUID } from '../internal/utils';
-import { FrameContexts, HostClientType } from './constants';
-import { ErrorCode, SdkError } from './interfaces';
+import { errorNotSupportedOnPlatform, FrameContexts, HostClientType } from './constants';
+import { DevicePermission, ErrorCode, SdkError } from './interfaces';
 import { runtime } from './runtime';
 
+/**
+ * Interact with media, including capturing and viewing images.
+ */
 export namespace media {
+  /** Capture image callback function type. */
+  type captureImageCallbackFunctionType = (error: SdkError, files: File[]) => void;
+  /** Select media callback function type. */
+  type selectMediaCallbackFunctionType = (error: SdkError, attachments: Media[]) => void;
+  /** Error callback function type. */
+  type errorCallbackFunctionType = (error?: SdkError) => void;
+  /** Scan BarCode callback function type. */
+  type scanBarCodeCallbackFunctionType = (error: SdkError, decodedText: string) => void;
+  /** Get media callback function type. */
+  type getMediaCallbackFunctionType = (error: SdkError, blob: Blob) => void;
+
   /**
    * Enum for file formats supported
    */
   export enum FileFormat {
+    /** Base64 encoding */
     Base64 = 'base64',
+    /** File id */
     ID = 'id',
   }
 
@@ -81,7 +97,7 @@ export namespace media {
    * Note: For desktop, this API is not supported. Callback will be resolved with ErrorCode.NotSupported.
    *
    */
-  export function captureImage(callback: (error: SdkError, files: File[]) => void): void {
+  export function captureImage(callback: captureImageCallbackFunctionType): void {
     if (!callback) {
       throw new Error('[captureImage] Callback cannot be null');
     }
@@ -102,6 +118,56 @@ export namespace media {
     }
 
     sendMessageToParent('captureImage', callback);
+  }
+
+  /**
+   * Checks whether or not media has user permission
+   *
+   * @returns Promise that will resolve with true if the user had granted the app permission to media information, or with false otherwise,
+   * In case of an error, promise will reject with the error. Function can also throw a NOT_SUPPORTED_ON_PLATFORM error
+   *
+   * @beta
+   */
+  export function hasPermission(): Promise<boolean> {
+    ensureInitialized(runtime, FrameContexts.content, FrameContexts.task);
+    if (!isPermissionSupported()) {
+      throw errorNotSupportedOnPlatform;
+    }
+    const permissions: DevicePermission = DevicePermission.Media;
+
+    return new Promise<boolean>((resolve) => {
+      resolve(sendAndHandleSdkError('permissions.has', permissions));
+    });
+  }
+
+  /**
+   * Requests user permission for media
+   *
+   * @returns Promise that will resolve with true if the user consented permission for media, or with false otherwise,
+   * In case of an error, promise will reject with the error. Function can also throw a NOT_SUPPORTED_ON_PLATFORM error
+   *
+   * @beta
+   */
+  export function requestPermission(): Promise<boolean> {
+    ensureInitialized(runtime, FrameContexts.content, FrameContexts.task);
+    if (!isPermissionSupported()) {
+      throw errorNotSupportedOnPlatform;
+    }
+    const permissions: DevicePermission = DevicePermission.Media;
+
+    return new Promise<boolean>((resolve) => {
+      resolve(sendAndHandleSdkError('permissions.request', permissions));
+    });
+  }
+
+  /**
+   * Checks if permission capability is supported by the host
+   * @returns boolean to represent whether permission is supported
+   *
+   * @throws Error if {@linkcode app.initialize} has not successfully completed
+   */
+  function isPermissionSupported(): boolean {
+    return ensureInitialized(runtime) && runtime.supports.permissions ? true : false;
   }
 
   /**
@@ -131,7 +197,7 @@ export namespace media {
      * @param callback - callback is called with the @see SdkError if there is an error
      * If error is null or undefined, the callback will be called with @see Blob.
      */
-    public getMedia(callback: (error: SdkError, blob: Blob) => void): void {
+    public getMedia(callback: getMediaCallbackFunctionType): void {
       if (!callback) {
         throw new Error('[get Media] Callback cannot be null');
       }
@@ -156,7 +222,8 @@ export namespace media {
       }
     }
 
-    private getMediaViaCallback(callback: (error: SdkError, blob: Blob) => void): void {
+    /** Function to retrieve media content, such as images or videos, via callback. */
+    private getMediaViaCallback(callback: getMediaCallbackFunctionType): void {
       const helper: MediaHelper = {
         mediaMimeType: this.mimeType,
         assembleAttachment: [],
@@ -189,7 +256,8 @@ export namespace media {
       sendMessageToParent('getMedia', localUriId, handleGetMediaCallbackRequest);
     }
 
-    private getMediaViaHandler(callback: (error: SdkError, blob: Blob) => void): void {
+    /** Function to retrieve media content, such as images or videos, via handler. */
+    private getMediaViaHandler(callback: getMediaCallbackFunctionType): void {
       const actionName = generateGUID();
       const helper: MediaHelper = {
         mediaMimeType: this.mimeType,
@@ -377,6 +445,7 @@ export namespace media {
    * Base class which holds the callback and notifies events to the host client
    */
   abstract class MediaController<T> {
+    /** Callback that can be registered to handle events related to the playback and control of video content. */
     protected controllerCallback: T;
 
     public constructor(controllerCallback?: T) {
@@ -403,7 +472,7 @@ export namespace media {
      * @param mediaEvent indicates what the event that needs to be signaled to the host client
      * Optional; @param callback is used to send app if host client has successfully handled the notification event or not
      */
-    protected notifyEventToHost(mediaEvent: MediaControllerEvent, callback?: (err?: SdkError) => void): void {
+    protected notifyEventToHost(mediaEvent: MediaControllerEvent, callback?: errorCallbackFunctionType): void {
       ensureInitialized(runtime, FrameContexts.content, FrameContexts.task);
 
       try {
@@ -427,7 +496,7 @@ export namespace media {
      * Function to programatically stop the ongoing media event
      * Optional; @param callback is used to send app if host client has successfully stopped the event or not
      */
-    public stop(callback?: (err?: SdkError) => void): void {
+    public stop(callback?: errorCallbackFunctionType): void {
       this.notifyEventToHost(MediaControllerEvent.StopRecording, callback);
     }
   }
@@ -436,6 +505,7 @@ export namespace media {
    * Callback which will register your app to listen to lifecycle events during the video capture flow
    */
   export interface VideoControllerCallback {
+    /** The event is a type of callback that can be enlisted to handle various events linked to `onRecordingStarted`, which helps with playback of video content. */
     onRecordingStarted?(): void;
   }
 
@@ -443,10 +513,11 @@ export namespace media {
    * VideoController class is used to communicate between the app and the host client during the video capture flow
    */
   export class VideoController extends MediaController<VideoControllerCallback> {
+    /** Gets media type video. */
     protected getMediaType(): MediaType {
       return MediaType.Video;
     }
-
+    /** Notify or send an event related to the playback and control of video content to a registered application. */
     public notifyEventToApp(mediaEvent: MediaControllerEvent): void {
       if (!this.controllerCallback) {
         // Early return as app has not registered with the callback
@@ -468,7 +539,9 @@ export namespace media {
    * Events which are used to communicate between the app and the host client during the media recording flow
    */
   export enum MediaControllerEvent {
+    /** Start recording. */
     StartRecording = 1,
+    /** Stop recording. */
     StopRecording = 2,
   }
 
@@ -494,9 +567,13 @@ export namespace media {
    * The modes in which camera can be launched in select Media API
    */
   export enum CameraStartMode {
+    /** Photo mode. */
     Photo = 1,
+    /** Document mode. */
     Document = 2,
+    /** Whiteboard mode. */
     Whiteboard = 3,
+    /** Business card mode. */
     BusinessCard = 4,
   }
 
@@ -504,7 +581,9 @@ export namespace media {
    * Specifies the image source
    */
   export enum Source {
+    /** Image source is camera. */
     Camera = 1,
+    /** Image source is gallery. */
     Gallery = 2,
   }
 
@@ -512,9 +591,13 @@ export namespace media {
    * Specifies the type of Media
    */
   export enum MediaType {
+    /** Media type photo or image */
     Image = 1,
+    /** Media type video. */
     Video = 2,
+    /** Media type video and image. */
     VideoAndImage = 3,
+    /** Media type audio. */
     Audio = 4,
   }
 
@@ -522,7 +605,9 @@ export namespace media {
    * Input for view images API
    */
   export interface ImageUri {
+    /** Image location */
     value: string;
+    /** Image Uri type */
     type: ImageUriType;
   }
 
@@ -530,7 +615,9 @@ export namespace media {
    * ID contains a mapping for content uri on platform's side, URL is generic
    */
   export enum ImageUriType {
+    /** Image Id. */
     ID = 1,
+    /** Image URL. */
     URL = 2,
   }
 
@@ -538,7 +625,9 @@ export namespace media {
    * Specifies the image output formats.
    */
   export enum ImageOutputFormats {
+    /** Outputs image.  */
     IMAGE = 1,
+    /** Outputs pdf. */
     PDF = 2,
   }
 
@@ -576,7 +665,9 @@ export namespace media {
    * Helper object to assembled media chunks
    */
   export interface AssembleAttachment {
+    /** A number representing the sequence of the attachment in the media chunks. */
     sequence: number;
+    /** A Blob object representing the data of the media chunks. */
     file: Blob;
   }
 
@@ -584,7 +675,9 @@ export namespace media {
    * Helper class for assembling media
    */
   interface MediaHelper {
+    /** A string representing the MIME type of the media file */
     mediaMimeType: string;
+    /** An array of {@link media.AssembleAttachment | AssembleAttachment} objects representing the media files to be sent as attachment */
     assembleAttachment: AssembleAttachment[];
   }
 
@@ -594,10 +687,7 @@ export namespace media {
    * @param mediaInputs - The input params to customize the media to be selected
    * @param callback - The callback to invoke after fetching the media
    */
-  export function selectMedia(
-    mediaInputs: MediaInputs,
-    callback: (error: SdkError, attachments: Media[]) => void,
-  ): void {
+  export function selectMedia(mediaInputs: MediaInputs, callback: selectMediaCallbackFunctionType): void {
     if (!callback) {
       throw new Error('[select Media] Callback cannot be null');
     }
@@ -662,7 +752,7 @@ export namespace media {
    * @param uriList - list of URIs for images to be viewed - can be content URI or server URL. Supports up to 10 Images in a single call
    * @param callback - returns back error if encountered, returns null in case of success
    */
-  export function viewImages(uriList: ImageUri[], callback: (error?: SdkError) => void): void {
+  export function viewImages(uriList: ImageUri[], callback: errorCallbackFunctionType): void {
     if (!callback) {
       throw new Error('[view images] Callback cannot be null');
     }
@@ -707,7 +797,7 @@ export namespace media {
    * @param callback - callback to invoke after scanning the barcode
    * @param config - optional input configuration to customize the barcode scanning experience
    */
-  export function scanBarCode(callback: (error: SdkError, decodedText: string) => void, config?: BarCodeConfig): void {
+  export function scanBarCode(callback: scanBarCodeCallbackFunctionType, config?: BarCodeConfig): void {
     if (!callback) {
       throw new Error('[media.scanBarCode] Callback cannot be null');
     }

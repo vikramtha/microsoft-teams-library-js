@@ -17,6 +17,9 @@ import { runtime } from './runtime';
  * The tasks namespace will be deprecated. Please use dialog for future developments.
  */
 export namespace tasks {
+  /** Start task submit handler function type.  */
+  type startTaskSubmitHandlerFunctionType = (err: string, result: string | object) => void;
+
   /**
    * @deprecated
    * As of 2.8.0:
@@ -32,10 +35,7 @@ export namespace tasks {
    * @param taskInfo - An object containing the parameters of the task module
    * @param submitHandler - Handler to call when the task module is completed
    */
-  export function startTask(
-    taskInfo: TaskInfo,
-    submitHandler?: (err: string, result: string | object) => void,
-  ): IAppWindow {
+  export function startTask(taskInfo: TaskInfo, submitHandler?: startTaskSubmitHandlerFunctionType): IAppWindow {
     const dialogSubmitHandler = submitHandler
       ? /* eslint-disable-next-line strict-null-checks/all */ /* fix tracked by 5730662 */
         (sdkResponse: dialog.ISdkResponse) => submitHandler(sdkResponse.err, sdkResponse.result)
@@ -127,7 +127,7 @@ export namespace tasks {
 
   /**
    * Sets the height and width of the {@link TaskInfo} object to the original height and width, if initially specified,
-   * otherwise uses the height and width values corresponding to {@link TaskModuleDimension | TaskModuleDimension.Small}
+   * otherwise uses the height and width values corresponding to {@link DialogDimension | TaskModuleDimension.Small}
    * @param taskInfo TaskInfo object from which to extract size info, if specified
    * @returns TaskInfo with height and width specified
    */

@@ -8,7 +8,7 @@ steps:
       versionSpec: '14.x'
 
   - script: |
-      npm install -g pnpm
+      npm install -g pnpm@7.30.1
       pnpm config set store-dir $(Pipeline.Workspace)/.pnpm-store
     displayName: 'Setup pnpm'
 
@@ -35,7 +35,7 @@ steps:
       )
 
   - script: |
-      pnpm build
+      pnpm build-force-blazor
     displayName: 'pnpm build'
 
   - script: |
@@ -82,7 +82,8 @@ steps:
   - task: PublishBuildArtifacts@1
     condition: and(
       in(variables['Agent.JobStatus'], 'Succeeded', 'SucceededWithIssues'),
-      ne(variables['Build.Reason'], 'PullRequest'))
+      eq(variables['Build.Reason'], 'PullRequest'),
+      eq(variables['System.PullRequest.TargetBranch'], 'main'))
     inputs:
       PathtoPublish: './common/temp/bundleAnalysis'
       ArtifactName: '$(bundleArtifactName)'
@@ -165,3 +166,16 @@ steps:
       PathtoPublish: '$(Build.ArtifactStagingDirectory)\scripts'
       ArtifactName: 'scripts'
     displayName: 'Publish Powershell Scripts to Build Artifacts'
+
+  - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+    displayName: 'Manifest Generation Task'
+    inputs:
+      BuildDropPath: $(Build.ArtifactStagingDirectory)
+      BuildComponentPath: $(Build.SourcesDirectory)
+      AdditionalComponentDetectorArgs: '--DirectoryExclusionList node_modules'
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)\_manifest'
+      ArtifactName: 'SBOM'
+    displayName: 'Publish SBOM to Build Artifacts'

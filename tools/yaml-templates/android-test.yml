@@ -28,7 +28,7 @@ steps:
 
   - script: |
       corepack enable
-      corepack prepare pnpm@latest --activate
+      corepack prepare pnpm@7.30.1 --activate
       pnpm config set store-dir $(Pipeline.Workspace)/.pnpm-store
     displayName: 'Setup pnpm'
 
@@ -38,7 +38,7 @@ steps:
     workingDirectory: '$(ClientSdkProjectDirectory)'
 
   - script: |
-      pnpm build
+      pnpm build-force-blazor
     displayName: 'Build client sdk'
     workingDirectory: '$(ClientSdkProjectDirectory)'
 
@@ -49,6 +49,13 @@ steps:
   - bash: 'chmod u+x install_emulator.sh && ./install_emulator.sh'
     displayName: 'Install Emulator'
     workingDirectory: '$(Agent.BuildDirectory)/androidHost/devtools/ci'
+
+  - task: JavaToolInstaller@0
+    inputs:
+      versionSpec: '11'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+    displayName: 'Set default Java to x64'
 
   - bash: 'chmod u+x ./gradlew && chmod u+x e2eTest.sh && ./e2eTest.sh'
     displayName: 'Run Android E2E Tests'

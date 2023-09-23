@@ -1,8 +1,107 @@
 # Change Log - @microsoft/teams-js
 
-This log was last generated on Fri, 03 Mar 2023 19:57:31 GMT and should not be manually modified.
+This log was last generated on Wed, 06 Sep 2023 20:30:49 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 2.15.0
+
+Wed, 06 Sep 2023 20:30:49 GMT
+
+### Minor changes
+
+- Removed `appNotification` capability and collateral
+- Added `clipboard` capability, allowing access to the system clipboard programmatically
+- Added MacOS support
+
+### Patches
+
+- Added macOS to mobile list as macOS is also frameless.
+- Replaced `window` references with `ssrSafeWindow`
+- Added logging to help investigate dropped messages from hosts or embedded apps.
+- Added telemetry for video frame processing
+- Fixed issue that resulted in dropping first few frames when using the video capability
+- Added `surfaceHub` to the list of host client types that send authenticate requests to the host instead of opening an auth window
+
+## 2.14.0
+
+Wed, 02 Aug 2023 14:49:19 GMT
+
+### Minor changes
+
+- Added permission functions for media capability
+- Added new `appNotification` capability for apps to send notifications to the user through the host
+
+### Patches
+
+- Updated documentation to refer to 'Microsoft Entra' instead of 'AAD'
+- Started collection of `video` performance data
+
+## 2.13.0
+
+Wed, 05 Jul 2023 16:42:51 GMT
+
+### Minor changes
+
+- Added support for mediaStream with metadata in `videoEx` module for internal applications.
+- Added `marketplace` capability that helps app developers interact with the checkout flow
+- Added `liveShare` capability, which helps with building real-time collaborative apps
+
+### Patches
+
+- Made title optional when calling `stageView.open`
+- Removed import aliasing of communications.ts functions
+- Fixed an issue where `call.startCall` would return an error when it executed successfully in a legacy environment
+
+## 2.12.0
+
+Wed, 07 Jun 2023 19:21:01 GMT
+
+### Minor changes
+
+- Embedded apps no longer incorrectly get their parameters wrapped in an array
+- Added `secondaryBrowser` capability and its open API to enable browsing experience for Apps
+- Deleted unnecessary 'export' from helper functions and deleted unused and unnecessary functions in `dialog` capability.
+- Updated `video.registerForVideoFrame` to support both media stream and shared frame
+- Added `closeSearch` to `search` capability
+
+### Patches
+
+- Added default value for Adaptive Card version to support adaptive card dialogs in Teams V1
+- Fixed exports in `video` capability
+
+## 2.11.0
+
+Wed, 03 May 2023 18:17:38 GMT
+
+### Minor changes
+
+- Added `getClientInfo` to LiveShareHost
+
+### Patches
+
+- Added comments on all exported types and functions and made comments required for all future changes.
+
+## 2.10.1
+
+Thu, 06 Apr 2023 23:07:12 GMT
+
+### Minor changes
+
+- Fixed errors in `video` capability
+- Removed some valid origins
+
+### Patches
+
+- Fixed broken documentation link and invalid markdown.
+- Added `ipados` host client type check for auth flow
+- Removed legacy endpoints from `IFluidTenantInfo` interface
+- Added documentation to interfaces in `mail` capability
+- Removed unnecessary (and outdated) docs on various `enum` properties
+- `meeting.getAuthenticationTokenForAnonymousUser` can now be called from dialogs
+- Added documentation for "Anonymous" as possible value for `UserInfo.licenseType`
+- `sharing.isSupported` now returns the correct value on mobile platforms
+- Clarified documentation on proper use of various user identity properties
 
 ## 2.9.1
 
